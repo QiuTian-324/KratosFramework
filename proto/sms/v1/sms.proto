@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package sms.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "go-Hermes/proto/sms/v1;v1";
+option java_multiple_files = true;
+option java_package = "proto.sms.v1";
+
+service Sms {
+//   发送手机验证码
+  rpc SendUsingPhone (SendUsingPhoneRequest) returns (SendUsingPhoneReply){
+    option (google.api.http) = {
+      post: "/v1/sms/send",
+      body: "*"
+    };
+  };
+  // 验证手机验证码
+  rpc VerifyCodeByPhone(VerifyCodeByPhoneRequest) returns (VerifyCodeByPhoneReply){
+    option (google.api.http) = {
+      post: "/v1/verify-codes/phone",
+      body: "*"
+    };
+  };
+}
+
+// 发送手机验证码请求
+message SendUsingPhoneRequest {
+  // 目标手机号
+  string phone_number = 1;
+  // 验证码id(填写captcha.testing_key可跳过验证)
+  string captcha_id = 2;
+  // 验证码答案
+  string captcha_answer = 3;
+  // token
+  string token = 4;
+  // 密码(客户端提交不是必须的，重置密码的业务类型是必须的)
+  string password = 5;
+}
+
+// 发送手机验证码响应
+message SendUsingPhoneReply {
+  // 状态描述
+  string message = 1;
+  // 状态码
+  int32 code = 2;
+}
+
+// 业务类型枚举
+enum BusinessType {
+  // 用户注册
+  RegisterType  = 0;
+  // 用户登录
+  LoginType = 1;
+  // 用户找回密码
+  RetrievePasswordType = 2;
+}
+
+// 验证手机验证码请求
+message VerifyCodeByPhoneRequest {
+  string phone = 1;
+  string code = 2;
+  BusinessType business_type = 3;
+}
+
+// 验证手机验证码响应
+message VerifyCodeByPhoneReply {
+  bool success = 1;
+}

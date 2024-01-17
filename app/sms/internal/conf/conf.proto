@@ -1,0 +1,121 @@
+syntax = "proto3";
+package kratos.api;
+
+option go_package = "sms/internal/conf;conf";
+
+import "google/protobuf/duration.proto";
+
+// 主要配置结构体
+message Bootstrap {
+  Server server = 1;   // 服务器配置
+  Data data = 2;       // 数据配置
+  Trace trace = 3;     // 追踪配置
+  App app = 4;         // 应用配置
+  Registry registry = 5; // 注册中心配置
+}
+
+
+// 服务器配置
+message Server {
+  // HTTP 配置
+  message HTTP {
+    string network = 1; // 网络类型
+    string addr = 2;    // 地址
+    google.protobuf.Duration timeout = 3; // 超时时间
+  }
+  // GRPC 配置
+  message GRPC {
+    string network = 1; // 网络类型
+    string addr = 2;    // 地址
+    google.protobuf.Duration timeout = 3; // 超时时间
+  }
+  HTTP http = 1;
+  GRPC grpc = 2;
+}
+
+// 数据配置
+message Data {
+  // 数据库配置
+  message Database {
+    string driver = 1; // 数据库驱动
+    string dsn = 2;    // 数据源名称
+  }
+  // Redis 配置
+  message Redis {
+    string network = 1; // 网络类型
+    string addr = 2;    // 地址
+    google.protobuf.Duration read_timeout = 3;  // 读取超时时间
+    google.protobuf.Duration write_timeout = 4; // 写入超时时间
+  }
+  Database database = 1;
+  Redis redis = 2;
+}
+
+// 追踪配置
+message Trace {
+  string endpoint = 1; // 追踪终端地址
+}
+
+// 注册中心配置
+message Registry {
+  // Consul 配置
+  message Consul {
+    string address = 1; // Consul 地址
+    string scheme = 2;  // 连接协议
+    string token = 3;   // 访问令牌
+    Endpoints endpoints = 4; // 注册中心终端
+  }
+  // 注册中心终端配置
+  message Endpoints {
+    string user = 1; // 用户终端
+  }
+  Consul consul = 1;
+}
+
+// 短信服务配置
+message SMS {
+  string accessKeyId = 1;       // 秘钥 ID
+  string accessKeySecret = 2;   // 秘钥
+  repeated string signNames = 3; // 短信签名数组
+  repeated string templateCodes = 4; // 短信模板数组
+}
+
+// 验证码配置
+message Captcha {
+  int32 height = 1;  // 验证码图片高度
+  int32 width = 2;   // 验证码图片宽度
+  int32 length = 3;  // 验证码长度
+  float max_skew = 4; // 数字的最大倾斜角度
+  int32 dot_count = 5; // 图片背景里的混淆点数量
+  int32 expire_time = 6; // 过期时间，单位是分钟
+}
+
+// 访问认证配置
+message AAuth {
+  string jwt_verify_key = 1;  // JWT 签名校验公钥, base64编码
+  repeated string white_list = 2; // api 不需要认证的白名单
+  string rpc_jwt = 3;  // 访问内部rpc,grpclient所需要的jwt.
+}
+
+// 签发及认证配置
+message SAuth {
+  string jwt_sign_key = 1; // JWT 签发密钥(RSA私钥部分)
+  string jwt_verify_key = 6; // JWT 校验秘钥(RSA公钥部分)
+  uint32 jwt_ttl = 2;   // JWT默认有效时长,单位: 秒
+  string issuer = 3;    // 签名颁发者
+  repeated string audience = 4; // 鉴权者
+  repeated string ip_subjects = 7; // 允许使用此token的网络，为空则表示允许所有
+  uint32 ip_subjects_trigger = 9; // 强制触发网络限制检查的阈值(签发时间至当前的时间间距大于此值), 单位: 秒
+  repeated string white_list = 8; // api 不需要认证的白名单
+}
+
+// 应用配置
+message App {
+  string app_env = 1; // 运行环境
+  string code = 2;    // 测试环境中生效的代码
+  string name = 3;    // 应用名称
+  SMS sms = 4;        // 短信配置
+  Captcha captcha = 5; // 验证码配置
+  AAuth auth = 6;      // 访问认证配置
+  SAuth pub_auth = 7;  // 外部签发及校验认证
+}

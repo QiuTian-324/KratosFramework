@@ -1,0 +1,178 @@
+GOPATH:=$(shell go env GOPATH)
+VERSION=$(shell git describe --tags --always)
+BUILD_DATETIME=$(shell TZ=Asia/Chongqing date  +'%Y-%m-%d_%H:%M:%S_Asia/Chongqing')
+APP_RELATIVE_PATH=$(shell a=`basename $$PWD` && echo $$a)
+INTERNAL_PROTO_FILES=$(shell find internal -name *.proto)
+MY_API_PROTO_FILES=$(shell find ../../proto/$(APP_RELATIVE_PATH)  -name *.proto)
+API_PROTO_FILES=$(shell cd ../../proto/ && find $(APP_RELATIVE_PATH) -name *.proto)
+KRATOS_VERSION=$(shell go mod graph |grep go-kratos/kratos/v2 |head -n 1 |awk -F '@' '{print $$2}')
+KRATOS=$(GOPATH)/pkg/mod/github.com/go-kratos/kratos/v2@$(KRATOS_VERSION)
+APP_NAME=$(shell echo $(APP_RELATIVE_PATH))
+DOCKER_IMAGE=$(shell echo $(APP_NAME) |awk -F '@' '{print "dimpocp-server/" $$0 ":0.1.0"}')
+DOCKER_IMAGE_DEV=$(shell echo $(APP_NAME) |awk -F '@' '{print "" $$0 ":0.1.0"}')
+
+.PHONY: init
+# init env
+init:
+	go get -u google.golang.org/protobuf/cmd/protoc-gen-go
+	go get -u google.golang.org/grpc/cmd/protoc-gen-go-grpc
+	go get -u github.com/go-kratos/kratos/cmd/protoc-gen-go-http/v2
+	go get -u github.com/google/wire/cmd/wire
+	go get -u github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2
+	go install github.com/google/wire/cmd/wire@latest
+	go install github.com/go-kratos/kratos/cmd/protoc-gen-go-errors/v2@latest
+	go install github.com/envoyproxy/protoc-gen-validate@latest
+
+.PHONY: grpc
+# generate grpc code
+grpc:
+	 cd ../../  && protoc --proto_path=./proto \
+           --proto_path=./proto/third_party \
+           --go_out=paths=source_relative:./proto \
+           --go-grpc_out=paths=source_relative:./proto \
+           $(API_PROTO_FILES)
+
+.PHONY: http
+# generate http code
+http:
+	cd ../../ && protoc --proto_path=./proto \
+           --proto_path=./proto/third_party \
+           --go_out=paths=source_relative:./proto \
+           --go-http_out=paths=source_relative:./proto \
+           $(API_PROTO_FILES)
+
+.PHONY: config
+# generate internal proto
+config:
+	protoc  --proto_path=. --proto_path=../../proto/ \
+                --proto_path=../../proto/third_party \
+	        --go_out=paths=source_relative:. \
+	        $(INTERNAL_PROTO_FILES)
+	cd ../.. && protoc --proto_path=./proto \
+           --proto_path=./proto/third_party \
+           --go_out=paths=source_relative:./proto \
+           --go-http_out=paths=source_relative:./proto \
+	        ./proto/third_party/logger/logger.proto
+
+.PHONY: errors
+# generate errors code
+errors:
+	cd ../../ && protoc --proto_path=./proto \
+           --proto_path=./proto/third_party \
+           --go_out=paths=source_relative:./proto \
+           --go-errors_out=paths=source_relative:./proto \
+           $(API_PROTO_FILES)
+
+.PHONY: swagger
+# generate swagger
+swagger:
+	cd ../../ && protoc --proto_path=./proto \
+	        --proto_path=./proto/third_party \
+	        --openapiv2_out proto \
+	        --openapiv2_opt logtostderr=true \
+	        --openapiv2_opt output_format=yaml \
+           $(API_PROTO_FILES)
+
+.PHONY: proto
+# generate internal proto struct
+proto:
+	protoc --proto_path=. \
+           --proto_path=../../proto/third_party \
+           --proto_path=../../proto/ \
+           --go_out=paths=source_relative:. \
+           $(INTERNAL_PROTO_FILES)
+	protoc --proto_path=. \
+           --proto_path=../../proto/third_party \
+           --proto_path=../../proto/ \
+           --go_out=paths=source_relative:../../proto/ \
+           $(MY_API_PROTO_FILES)
+
+.PHONY: generate
+# generate client code
+generate:
+	go get github.com/google/wire/cmd/wire@latest
+	go generate ./...
+	go mod tidy -e
+
+.PHONY: validate
+# generate validate proto
+validate:
+	cd ../../ && protoc --proto_path=./proto \
+           --proto_path=./proto/third_party \
+           --go_out=paths=source_relative:./proto \
+           --validate_out=paths=source_relative,lang=go:./proto \
+		  $(API_PROTO_FILES)
+
+.PHONY: build-direct
+# 直接构建，不需进行code generate、依赖拉取等。一般用于业务代码修改快速构建进行调试.
+build-direct:
+	mkdir -p bin/ && go build -mod=mod -ldflags "-X main.Version=$(VERSION) -X main.BuildDateTime=$(BUILD_DATETIME)" -o ./bin/ ./...
+
+.PHONY: build
+# build
+build: config generate wire grpc http errors
+	mkdir -p bin/ && go build -mod=mod -ldflags "-X main.Version=$(VERSION) -X main.BuildDateTime=$(BUILD_DATETIME)" -o ./bin/ ./...
+.PHONY: build-ci
+# build classic server
+build-ci:
+	mkdir -p bin/ && go build -ldflags "-X main.Version=$(VERSION) -X main.BuildDateTime=$(BUILD_DATETIME)" -o ./bin/ ./...
+
+.PHONY: test
+# test
+test:
+	go test -v ./... -cover
+
+.PHONY: run
+run:
+	cd cmd/server/ && go run .
+
+.PHONY: ent
+ent:
+	cd internal/data/ && go generate ./...
+
+.PHONY: docker
+docker:
+	cd ../../ && docker build -f deploy/build/Dockerfile --build-arg APP_RELATIVE_PATH=$(APP_RELATIVE_PATH) --build-arg APP_NAME=$(APP_NAME)  -t $(DOCKER_IMAGE) . \
+	&& docker image prune --filter label=stage=intermediate -f
+
+
+.PHONY: wire
+# generate wire
+wire:
+	cd cmd/$(APP_RELATIVE_PATH) && wire ./...
+
+.PHONY: api
+# generate api proto
+api: grpc http errors
+
+.PHONY: all
+# generate all
+all: grpc http proto generate build test
+
+.PHONY: all-ci
+# generate all-ci
+all-ci: init api config errors validate
+
+.PHONY: migrate
+# generate migrate
+migrate:
+	cd cmd/$(APP_RELATIVE_PATH) && go run . migrate -c ../../configs
+
+# show help
+help:
+	@echo ''
+	@echo 'Usage:'
+	@echo ' make [target]'
+	@echo ''
+	@echo 'Targets:'
+	@awk '/^[a-zA-Z\-\_0-9]+:/ { \
+	helpMessage = match(lastLine, /^# (.*)/); \
+		if (helpMessage) { \
+			helpCommand = substr($$1, 0, index($$1, ":")-1); \
+			helpMessage = substr(lastLine, RSTART + 2, RLENGTH); \
+			printf "\033[36m%-22s\033[0m %s\n", helpCommand,helpMessage; \
+		} \
+	} \
+	{ lastLine = $$0 }' $(MAKEFILE_LIST)
+
+.DEFAULT_GOAL := help
